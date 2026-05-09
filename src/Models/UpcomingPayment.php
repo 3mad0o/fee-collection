@@ -5,10 +5,11 @@ namespace Emad\FeeCollection\Models;
 use Carbon\Carbon;
 use Emad\FeeCollection\Contracts\AccountStatementServiceInterface;
 use Emad\FeeCollection\Contracts\PaymentSplitterServiceInterface;
+use Emad\FeeCollection\Enums\AccountStatementStatus;
 use Emad\FeeCollection\Enums\AccountStatementType;
+use Emad\FeeCollection\Events\PaymentOverdue;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\HasOneThrough;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Support\Collection;
@@ -59,6 +60,24 @@ class UpcomingPayment extends Model
         )->where('type', AccountStatementType::RECEIPT);
     }
 
+    public function isOverdue(): bool
+    {
+        $isOverdue = $this->due_date !== null
+            && $this->due_date->lt(today())
+            && !$this->receipt()->exists()
+            && (float) $this->remaining_amount > 0;
+
+        if ($isOverdue) {
+            $this->invoice?->update([
+                'status' => AccountStatementStatus::Overdue,
+            ]);
+
+            event(new PaymentOverdue($this));
+        }
+
+        return $isOverdue;
+    }
+
 
     public function children(): HasMany
     {
@@ -79,9 +98,9 @@ class UpcomingPayment extends Model
         return app(AccountStatementServiceInterface::class)->createInvoice($this, $description, $date, $document);
     }
 
-    public function createReceipt(string $description, ?Carbon $date = null, ?string $document = null): AccountStatement
+    public function createReceipt(string $description, ?Carbon $date = null, ?string $document = null, ?bool $autoInvoice = null): AccountStatement
     {
-        return app(AccountStatementServiceInterface::class)->createUpcomingPaymentReceipt($this, $description, $date, $document);
+        return app(AccountStatementServiceInterface::class)->createUpcomingPaymentReceipt($this, $description, $date, $document, $autoInvoice);
     }
 
 }

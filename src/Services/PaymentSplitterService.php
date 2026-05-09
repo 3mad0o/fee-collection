@@ -4,8 +4,10 @@ namespace Emad\FeeCollection\Services;
 
 use Carbon\Carbon;
 use Emad\FeeCollection\Contracts\PaymentSplitterServiceInterface;
+use Emad\FeeCollection\Events\PaymentSplit;
 use Emad\FeeCollection\FeeCollectionException;
 use Emad\FeeCollection\Models\UpcomingPayment;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Collection;
 
 class PaymentSplitterService implements PaymentSplitterServiceInterface
@@ -34,9 +36,15 @@ class PaymentSplitterService implements PaymentSplitterServiceInterface
             throw new FeeCollectionException('Split data cannot be empty');
         }
 
-        $upcomingPayment->update(['remaining_amount' => 0]);
+        return DB::transaction(function () use ($upcomingPayment, $dataToSplit): Collection {
+            $upcomingPayment->update(['remaining_amount' => 0]);
 
-        return $upcomingPayment->children()->createMany($dataToSplit);
+            $children = $upcomingPayment->children()->createMany($dataToSplit);
+
+            event(new PaymentSplit($upcomingPayment->refresh(), $children));
+
+            return $children;
+        });
     }
 
     /**

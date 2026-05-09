@@ -22,7 +22,8 @@ interface AccountStatementServiceInterface
         UpcomingPayment $upcomingPayment,
         string $description,
         ?Carbon $date = null,
-        ?string $document = null
+        ?string $document = null,
+        ?bool $autoInvoice = null
     ): AccountStatement;
 
     /**
@@ -33,8 +34,23 @@ interface AccountStatementServiceInterface
         float $amount,
         string $description,
         ?Carbon $date = null,
-        ?string $document = null
+        ?string $document = null,
+        ?bool $autoInvoice = null
     ): AccountStatement;
+
+    public function createCreditNote(
+        AccountStatement $invoice,
+        string $description,
+        ?Carbon $date = null
+    ): AccountStatement;
+
+    public function voidInvoice(AccountStatement $invoice, string $reason): bool;
+
+    /**
+     * @param Model&UseFeeable $payable
+     * @return Collection<int, AccountStatement>
+     */
+    public function generateDueInvoices(Model $payable, ?Carbon $date = null): Collection;
 
     /**
      * @param Model&UseFeeable $model

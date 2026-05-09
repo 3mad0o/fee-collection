@@ -7,6 +7,7 @@ enum AccountStatementType: string
 
     case INVOICE = 'invoice';
     case RECEIPT = 'receipt';
+    case CREDIT_NOTE = 'credit_note';
 
     public static function values(): array
     {

@@ -61,6 +61,7 @@ class StatementPdfService implements StatementPdfServiceInterface
         return match ($statement->type) {
             AccountStatementType::INVOICE => (string) config('fee_collection.invoice_view', 'fee-collection::pdf.invoice'),
             AccountStatementType::RECEIPT => (string) config('fee_collection.receipt_view', 'fee-collection::pdf.receipt'),
+            AccountStatementType::CREDIT_NOTE => (string) config('fee_collection.credit_note_view', 'fee-collection::pdf.invoice'),
         };
     }
 }

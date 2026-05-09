@@ -37,7 +37,7 @@ trait UseFeeable
         ]);
 
         // If wallet has enough credit, consume it immediately via invoice.
-        if ($this->balance() >= $amount) {
+        if (config('fee_collection.auto_invoice_on_receipt', true) && $this->balance() >= $amount) {
             $upcomingPayment->createInvoice('Auto-generated invoice from wallet balance', now());
             $upcomingPayment->update([
                 'remaining_amount' => 0,
@@ -92,9 +92,24 @@ trait UseFeeable
             ->max('number') ?? 0);
     }
 
-    public function createReceipt(float $amount, string $description, ?Carbon $date = null, $document = null): AccountStatement
+    public function overduePayments(): \Illuminate\Support\Collection
     {
-        return app(AccountStatementServiceInterface::class)->createReceipt($this, $amount, $description, $date, $document);
+        return $this->payments()
+            ->where('due_date', '<', today())
+            ->where('remaining_amount', '>', 0)
+            ->get()
+            ->filter(fn (UpcomingPayment $payment): bool => $payment->isOverdue())
+            ->values();
+    }
+
+    public function generateDueInvoices(?Carbon $date = null): \Illuminate\Support\Collection
+    {
+        return app(AccountStatementServiceInterface::class)->generateDueInvoices($this, $date);
+    }
+
+    public function createReceipt(float $amount, string $description, ?Carbon $date = null, $document = null, ?bool $autoInvoice = null): AccountStatement
+    {
+        return app(AccountStatementServiceInterface::class)->createReceipt($this, $amount, $description, $date, $document, $autoInvoice);
     }
 
 }

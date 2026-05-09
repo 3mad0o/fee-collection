@@ -3,10 +3,14 @@
 namespace Emad\FeeCollection\Models;
 
 use Carbon\Carbon;
+use Emad\FeeCollection\Contracts\AccountStatementServiceInterface;
 use Emad\FeeCollection\Contracts\StatementPdfServiceInterface;
+use Emad\FeeCollection\Enums\AccountStatementStatus;
 use Emad\FeeCollection\Enums\AccountStatementType;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 
 class AccountStatement extends Model
@@ -32,7 +36,10 @@ class AccountStatement extends Model
         'updated_at',
         'date',
         'document',
-
+        'reference_id',
+        'status',
+        'voided_at',
+        'void_reason',
     ];
 
     /**
@@ -46,6 +53,8 @@ class AccountStatement extends Model
         'debit' => 'float',
         'credit' => 'float',
         'balance' => 'float',
+        'status' => AccountStatementStatus::class,
+        'voided_at' => 'datetime',
     ];
 
 
@@ -59,6 +68,17 @@ class AccountStatement extends Model
         return $this->morphTo();
     }
 
+    public function reference(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'reference_id');
+    }
+
+    public function creditNote(): HasOne
+    {
+        return $this->hasOne(self::class, 'reference_id')
+            ->where('type', AccountStatementType::CREDIT_NOTE);
+    }
+
     /**
      * Build PDF object for current statement using configured blade template.
      */
@@ -67,14 +87,28 @@ class AccountStatement extends Model
         return app(StatementPdfServiceInterface::class)->make($this);
     }
 
+    public function createCreditNote(string $description, ?Carbon $date = null): AccountStatement
+    {
+        return app(AccountStatementServiceInterface::class)->createCreditNote($this, $description, $date);
+    }
+
+    public function void(string $reason): bool
+    {
+        return app(AccountStatementServiceInterface::class)->voidInvoice($this, $reason);
+    }
+
     public function getFormattedNumberAttribute(): string
     {
-        $prefix = $this->type === AccountStatementType::INVOICE
-            ? (string) config('fee_collection.invoice_prefix', '')
-            : (string) config('fee_collection.receipt_prefix', '');
-        $suffix = $this->type === AccountStatementType::INVOICE
-            ? (string) config('fee_collection.invoice_suffix', '')
-            : (string) config('fee_collection.receipt_suffix', '');
+        $prefix = match ($this->type) {
+            AccountStatementType::INVOICE => (string) config('fee_collection.invoice_prefix', ''),
+            AccountStatementType::CREDIT_NOTE => (string) config('fee_collection.credit_note_prefix', 'CN-'),
+            AccountStatementType::RECEIPT => (string) config('fee_collection.receipt_prefix', ''),
+        };
+        $suffix = match ($this->type) {
+            AccountStatementType::INVOICE => (string) config('fee_collection.invoice_suffix', ''),
+            AccountStatementType::CREDIT_NOTE => (string) config('fee_collection.credit_note_suffix', ''),
+            AccountStatementType::RECEIPT => (string) config('fee_collection.receipt_suffix', ''),
+        };
 
         return $prefix . (string) ($this->attributes['number'] ?? $this->number) . $suffix;
     }
