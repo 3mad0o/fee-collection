@@ -1,4 +1,12 @@
-# FeeCollection
+<p align="center">
+    <img src="https://3mad0o.github.io/fee-collection-documentation/logo.svg" alt="FeeCollection logo" width="96" height="96">
+</p>
+
+<h1 align="center">FeeCollection</h1>
+
+<p align="center">
+    Laravel fee workflow package for scheduled payments, invoices, receipts, credit notes, statement history, wallet balances, and optional PDF documents.
+</p>
 
 FeeCollection is a Laravel package for fee workflows:
 
@@ -10,6 +18,24 @@ FeeCollection is a Laravel package for fee workflows:
 - keep account statements recalculated
 - track one wallet balance row per payable model
 - optionally generate/store invoice/receipt PDFs
+
+See the documentation below, or browse the full documentation site:
+
+https://3mad0o.github.io/fee-collection-documentation/
+
+## Table of Contents
+
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Getting Started](#getting-started)
+- [Configuration](#configuration)
+- [Core Concepts](#core-concepts)
+- [Usage Examples](#usage-examples)
+- [PDF Documents](#pdf-documents)
+- [Events](#events)
+- [API Quick Reference](#api-quick-reference)
+- [What Gets Stored](#what-gets-stored)
+- [License](#license)
 
 ## Requirements
 
@@ -69,7 +95,9 @@ This creates:
 - `account_statement_upcoming_payments`
 - `wallet_transactions` (single row per walletable with current balance)
 
-## Setup Model
+## Getting Started
+
+### Setup Model
 
 Add `UseFeeable` trait to any Eloquent model (for example `User`):
 
@@ -81,6 +109,8 @@ class User extends Model
     use UseFeeable;
 }
 ```
+
+After this, the model can register payments, create receipts, generate due invoices, query statements, and read its wallet balance.
 
 ## Configuration
 
@@ -115,6 +145,59 @@ return [
 - If `pdf.enabled = true`, generated PDF path is saved in `account_statements.document`.
 - `auto_invoice_on_receipt` may be overridden per receipt call.
 - Credit notes are always manual. Splitting a payment never creates a credit note automatically.
+
+## Core Concepts
+
+FeeCollection is built around payable models, upcoming payments, account statements, and wallet balances.
+
+### Payable Models
+
+Any Eloquent model using `UseFeeable` can own fee workflows. Typical examples include `User`, `Student`, `Customer`, and `Tenant`.
+
+The trait adds methods for payment registration, statement access, wallet balance checks, overdue detection, and due invoice generation.
+
+### Upcoming Payments
+
+An upcoming payment represents a scheduled amount due on a future date.
+
+Upcoming payments can be:
+
+- registered from a payable model
+- invoiced manually
+- receipted manually
+- split into child payments
+- detected as overdue
+- invoiced automatically when due
+
+### Account Statements
+
+Account statements represent financial documents and history entries such as invoices, receipts, and credit notes.
+
+Statements include a `status` field for reporting and filtering.
+
+### Wallet Balance
+
+The package tracks one wallet balance row per payable model in `wallet_transactions`.
+
+```php
+$balance = $user->balance();
+```
+
+### Credit Notes
+
+Credit notes are created from invoices. A credit note:
+
+- references the original invoice through `reference_id`
+- uses a negative `amount`
+- changes the original invoice status to `credited`
+
+Credit notes are not created automatically during payment splitting.
+
+### Voided Invoices
+
+A voided invoice is excluded from balance recalculation.
+
+Use voiding only for invoices that should be killed internally before customer settlement.
 
 ## Usage Examples
 
@@ -226,18 +309,7 @@ $schedule->call(function () {
 })->daily();
 ```
 
-### 8) Events
-
-The package dispatches these events after successful changes:
-
-- `Emad\FeeCollection\Events\InvoiceCreated`
-- `Emad\FeeCollection\Events\ReceiptCreated`
-- `Emad\FeeCollection\Events\CreditNoteCreated`
-- `Emad\FeeCollection\Events\PaymentOverdue`
-- `Emad\FeeCollection\Events\PaymentSplit`
-- `Emad\FeeCollection\Events\InvoiceVoided`
-
-### 9) Statement status
+### 8) Statement status
 
 Statements include a `status` field for filtering/reporting:
 
@@ -254,20 +326,113 @@ $creditedStatements = $user->accountStatements()->where('status', 'credited')->g
 
 Status is a reporting helper. Balances are still calculated from statement debit/credit values, excluding voided invoices.
 
-### 10) List statements and check wallet balance
+### 9) List statements and check wallet balance
 
 ```php
 $statements = $user->accountStatements()->orderByDesc('date')->get();
 $balance = $user->balance();
 ```
 
-### 11) Generate PDF manually
+## Events
+
+The package dispatches these events after successful changes:
+
+- `Emad\FeeCollection\Events\InvoiceCreated`
+- `Emad\FeeCollection\Events\ReceiptCreated`
+- `Emad\FeeCollection\Events\CreditNoteCreated`
+- `Emad\FeeCollection\Events\PaymentOverdue`
+- `Emad\FeeCollection\Events\PaymentSplit`
+- `Emad\FeeCollection\Events\InvoiceVoided`
+
+Common uses include customer notifications, internal audit logs, reporting updates, accounting exports, and webhook dispatching.
+
+## PDF Documents
+
+FeeCollection can generate and store PDF documents for invoices, receipts, and credit notes.
+
+Install DomPDF support:
+
+```bash
+composer require barryvdh/laravel-dompdf
+```
+
+PDF generation is controlled by `config/fee_collection.php`:
+
+```php
+'pdf' => [
+    'enabled' => env('FEE_COLLECTION_PDF_ENABLED', true),
+    'paper' => 'a4',
+    'orientation' => 'portrait',
+    'disk' => env('FEE_COLLECTION_PDF_DISK', 'public'),
+    'path' => env('FEE_COLLECTION_PDF_PATH', 'fee-collection/documents'),
+],
+```
+
+Useful environment variables:
+
+```text
+FEE_COLLECTION_PDF_ENABLED=true
+FEE_COLLECTION_PDF_DISK=public
+FEE_COLLECTION_PDF_PATH=fee-collection/documents
+```
+
+Configure the Blade views used for generated documents:
+
+```php
+'invoice_view' => 'fee-collection::pdf.invoice',
+'receipt_view' => 'fee-collection::pdf.receipt',
+'credit_note_view' => 'fee-collection::pdf.invoice',
+```
+
+### Generate PDF manually
 
 ```php
 $statement = $user->accountStatements()->latest('id')->first();
 $pdf = $statement->toPdf();
 
 return $pdf->download($statement->formatted_number . '.pdf');
+```
+
+When PDF generation is enabled, the generated PDF path is saved in `account_statements.document`.
+
+## API Quick Reference
+
+### Payable model methods
+
+```php
+$user->createReceipt(1000, 'Initial credit', now());
+$user->createReceipt(1000, 'Initial credit', now(), autoInvoice: false);
+
+$payment = $user->registerPayment(100, now()->addDays(10));
+
+$overduePayments = $user->overduePayments();
+$invoices = $user->generateDueInvoices();
+$statements = $user->accountStatements()->orderByDesc('date')->get();
+$balance = $user->balance();
+```
+
+### Upcoming payment methods
+
+```php
+$invoice = $payment->createInvoice('Original invoice', now());
+$payment->createReceipt('Test Receipt', now());
+
+$children = $payment->split([
+    ['amount' => 500, 'due_date' => now()->addMonth()],
+    ['amount' => 500, 'due_date' => now()->addMonths(2)],
+]);
+
+if ($payment->isOverdue()) {
+    // notify the customer
+}
+```
+
+### Statement methods
+
+```php
+$creditNote = $invoice->createCreditNote('Invoice cancelled', now());
+$invoice->void('Created by mistake');
+$pdf = $statement->toPdf();
 ```
 
 ## What Gets Stored
